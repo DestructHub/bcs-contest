@@ -6,6 +6,8 @@ from distutils.spawn import find_executable
 from optparse import OptionParser
 
 class Checker(object):
+  """Checker class for solution"""
+
   checked = []
 
   def __init__(self, compiler, file):
@@ -22,103 +24,111 @@ class Checker(object):
       self.checked += binary
 
 class Execute(Checker):
+  """Checker class that simply runs a command and inject an input to stdin"""
+
   def run(self, input):
+    """Given an input, run a command and insert the input into the stdin"""
     command = ' '.join(self.compiler + [self.file])
-    p = Popen(command, stdin=PIPE, stdout=PIPE, stderr=PIPE, shell=True)
+    program = Popen(command, stdin=PIPE, stdout=PIPE, stderr=PIPE, shell=True)
 
-    return p.communicate(input=input.encode())
+    return program.communicate(input=input.encode())
 
-class Build(Checker):
+class Build(Execute):
+  """Build is a checker that compiles it's file then change it's
+  file and compiler command to simply run the new generated ./compiled.out"""
+
   fout = "compiled.out"
 
   def compile(self):
-    self.output = os.path.join(os.path.dirname(self.file), self.fout)
+    """Compile the file before running"""
+    output = os.path.join(os.path.dirname(self.file), self.fout)
 
-    args = self.compiler + [self.file, "-o", self.output]
+    args = self.compiler + [self.file, "-o", output]
     program = Popen(args, stdout=PIPE)
 
     if program.wait() != 0:
       raise EnvironmentError("Compile fails")
 
-    self.compiled = os.path.abspath(self.output)
-
-  def run(self, input):
-    program = Execute("bash -c", "{!r}".format(self.compiled))
-    return program.run(input)
+    # Once compiled, change it's compiler command and file
+    # so that it's super class Execute may run the newly compiled
+    # compiled.out
+    self.compiler = 'bash -c'.split()
+    self.file = os.path.abspath(output)
 
   def cleanup(self):
-    os.remove(self.compiled)
+    """Delete the compiled file after runs"""
+    os.remove(self.file)
 
-BUILD_MACHINE = {
+CHECKERS = {
     "Python": {
         "cmdline": "python3",
         "ext": "py",
-        "builder": Execute
+        "checker": Execute
     },
     "Go": {
         "cmdline": "go run",
         "ext": "go",
-        "builder": Execute
+        "checker": Execute
     },
     "Clojure": {
         "cmdline": "clojure",
         "ext": "clj",
-        "builder": Execute
+        "checker": Execute
     },
     "CommonLisp": {
         "cmdline": "clisp",
         "ext": "lisp",
-        "builder": Execute
+        "checker": Execute
     },
     "Haskell": {
         "cmdline": "runhaskell",
         "ext": "hs",
-        "builder": Execute
+        "checker": Execute
     },
     "C": {
         "cmdline": "gcc -std=c99 -lm",
         "ext": "c",
-        "builder": Build
+        "checker": Build
     },
     "C++": {
         "cmdline": "g++ -std=c++0x",
         "ext": "cpp",
-        "builder": Build
+        "checker": Build
     },
     "Lua": {
         "cmdline": "lua",
         "ext": "lua",
-        "builder": Execute
+        "checker": Execute
     },
     "Ruby": {
         "cmdline": "ruby",
         "ext": "rb",
-        "builder": Execute
+        "checker": Execute
     },
     "Bash": {
         "cmdline": "bash",
         "ext": "sh",
-        "builder": Execute
+        "checker": Execute
     },
     "Elixir": {
         "cmdline": "elixir",
         "ext": "exs",
-        "builder": Execute
+        "checker": Execute
     },
     "Objective-C": {
         "cmdline": "gcc -Wall -lm -lobjc",
         "ext": "m",
-        "builder": Build
+        "checker": Build
     },
     "PHP": {
         "cmdline": "php",
         "ext": "php",
-        "builder": Execute
+        "checker": Execute
     },
     "Swift": {
         "cmdline": "swift",
         "ext": "swift",
-        "builder": Execute
+        "checker": Execute
     }
 }
 
@@ -145,11 +155,11 @@ def cases(year, event, problem):
     for file in files
   ], 2))
 
-def test(builder, input, expected):
-  """Given a builder, a input and a expected output,
+def test(checker, input, expected):
+  """Given a checker, a input and a expected output,
   return a 2-uple with a boolean representing if the test passed
   and the value returned by stderr or stdout"""
-  out, err = builder.run(input)
+  out, err = checker.run(input)
 
   solution = bytes.decode(out)
   error = bytes.decode(err)
@@ -166,31 +176,31 @@ def test_all(year, event, problem, language, id):
   """Test all cases from the given problem"""
   test_case = cases(year, event, problem)
 
-  file = './{}/{}/{}/{}/solution_{}.{}'.format(year, event, problem, language, id, BUILD_MACHINE[language]['ext'])
+  file = './{}/{}/{}/{}/solution_{}.{}'.format(year, event, problem, language, id, CHECKERS[language]['ext'])
 
-  builder = prepare_builder(language, file)
+  checker = prepare_checker(language, file)
 
   results = [
-    test(builder, input, expected)
+    test(checker, input, expected)
     for input, expected in test_case
   ]
 
-  if isinstance(builder, Build):
-    builder.cleanup()
+  if isinstance(checker, Build):
+    checker.cleanup()
 
   return results
 
-def prepare_builder(language, file):
+def prepare_checker(language, file):
   """Given a language and a file, instance a builder object"""
-  cmdline = BUILD_MACHINE[language]['cmdline']
-  builder = BUILD_MACHINE[language]['builder']
+  cmdline = CHECKERS[language]['cmdline']
+  checker_type = CHECKERS[language]['checker']
 
-  instance = builder(cmdline, file)
+  checker = checker_type(cmdline, file)
 
-  if isinstance(instance, Build):
-    instance.compile()
+  if isinstance(checker, Build):
+    checker.compile()
 
-  return instance
+  return checker
 
 def test_output(results):
   """Tell our solver if everything went right"""
@@ -236,13 +246,13 @@ if not year.isdigit():
 if not solution_number.isdigit():
   parser.error('Solution number is not a number')
 
-if not lang in BUILD_MACHINE:
+if lang not in CHECKERS:
   parser.error(
     'Language not found.\nAvailable: {}'
-      .format(", ".join(BUILD_MACHINE.keys()))
+      .format(", ".join(CHECKERS.keys()))
   )
 
-possible_file = '{}/{}/{}/{}/solution_{}.{}'.format(year, event, problem, lang, solution_number, BUILD_MACHINE[lang]['ext'])
+possible_file = '{}/{}/{}/{}/solution_{}.{}'.format(year, event, problem, lang, solution_number, CHECKERS[lang]['ext'])
 
 if not os.path.isfile(os.path.abspath(possible_file)):
     parser.error('Solution file not found.\nDid you make the file ./{}?'
