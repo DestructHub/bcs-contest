@@ -32,22 +32,22 @@ class Build(Checker):
   fout = "compiled.out"
 
   def compile(self):
+    self.output = os.path.join(os.path.dirname(self.file), self.fout)
+
     args = self.compiler + [self.file, "-o", self.output]
     program = Popen(args, stdout=PIPE)
 
-    return program.wait() == 0
+    if program.wait() != 0:
+      raise EnvironmentError("Compile fails")
+
+    self.compiled = os.path.abspath(self.output)
 
   def run(self, input):
-    self.output = os.path.join(os.path.dirname(self.file), self.fout)
+    program = Execute("bash -c", "{!r}".format(self.compiled))
+    return program.run(input)
 
-    if self.compile():
-      compiled = os.path.abspath(self.output)
-      program = Execute("bash -c", "{!r}".format(compiled))
-      output = program.run(input)
-      os.remove(compiled)
-      return output
-
-    return b"compiles fails", EnvironmentError, 0
+  def cleanup(self):
+    os.remove(self.compiled)
 
 BUILD_MACHINE = {
     "Python": {
@@ -170,17 +170,27 @@ def test_all(year, event, problem, language, id):
 
   builder = prepare_builder(language, file)
 
-  return test_output([
+  results = [
     test(builder, input, expected)
     for input, expected in test_case
-  ])
+  ]
+
+  if isinstance(builder, Build):
+    builder.cleanup()
+
+  return results
 
 def prepare_builder(language, file):
   """Given a language and a file, instance a builder object"""
   cmdline = BUILD_MACHINE[language]['cmdline']
   builder = BUILD_MACHINE[language]['builder']
 
-  return builder(cmdline, file)
+  instance = builder(cmdline, file)
+
+  if isinstance(instance, Build):
+    instance.compile()
+
+  return instance
 
 def test_output(results):
   """Tell our solver if everything went right"""
@@ -238,5 +248,5 @@ if not os.path.isfile(os.path.abspath(possible_file)):
     parser.error('Solution file not found.\nDid you make the file ./{}?'
                  .format(possible_file))
 
-test_all(int(year), event, problem, lang, int(solution_number))
+test_output(test_all(int(year), event, problem, lang, int(solution_number)))
 
