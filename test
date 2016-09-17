@@ -146,7 +146,7 @@ def cases(year, event, problem):
   ], 2))
 
 def test(builder, input, expected):
-  """Given a file path, a command, input and expected output,
+  """Given a builder, a input and a expected output,
   return a 2-uple with a boolean representing if the test passed
   and the value returned by stderr or stdout"""
   out, err = builder.run(input)
