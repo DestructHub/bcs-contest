@@ -1,0 +1,242 @@
+#!/usr/bin/env python3
+import os
+from subprocess import run, PIPE, Popen
+from pathlib import Path, PurePath
+from distutils.spawn import find_executable
+from optparse import OptionParser
+
+class Checker(object):
+  checked = []
+
+  def __init__(self, compiler, file):
+    self.compiler = compiler.split()
+    self.file = file
+    self.check()
+
+  def check(self):
+    binary = self.compiler[0]
+
+    if binary not in self.checked and not find_executable(binary):
+      raise EnvironmentError("{!r} not found. Do you have the compilers?".format(binary))  # noqa
+    elif binary not in self.checked:
+      self.checked += binary
+
+class Execute(Checker):
+  def run(self, input):
+    command = ' '.join(self.compiler + [self.file])
+    p = Popen(command, stdin=PIPE, stdout=PIPE, stderr=PIPE, shell=True)
+
+    return p.communicate(input=input.encode())
+
+class Build(Checker):
+  fout = "compiled.out"
+
+  def compile(self):
+    args = self.compiler + [self.file, "-o", self.output]
+    program = Popen(args, stdout=PIPE)
+
+    return program.wait() == 0
+
+  def run(self, input):
+    self.output = os.path.join(os.path.dirname(self.file), self.fout)
+
+    if self.compile():
+      compiled = os.path.abspath(self.output)
+      program = Execute("bash -c", "{!r}".format(compiled))
+      output = program.run(input)
+      os.remove(compiled)
+      return output
+
+    return b"compiles fails", EnvironmentError, 0
+
+BUILD_MACHINE = {
+    "Python": {
+        "cmdline": "python3",
+        "ext": "py",
+        "builder": Execute
+    },
+    "Go": {
+        "cmdline": "go run",
+        "ext": "go",
+        "builder": Execute
+    },
+    "Clojure": {
+        "cmdline": "clojure",
+        "ext": "clj",
+        "builder": Execute
+    },
+    "CommonLisp": {
+        "cmdline": "clisp",
+        "ext": "lisp",
+        "builder": Execute
+    },
+    "Haskell": {
+        "cmdline": "runhaskell",
+        "ext": "hs",
+        "builder": Execute
+    },
+    "C": {
+        "cmdline": "gcc -std=c99 -lm",
+        "ext": "c",
+        "builder": Build
+    },
+    "C++": {
+        "cmdline": "g++ -std=c++0x",
+        "ext": "cpp",
+        "builder": Build
+    },
+    "Lua": {
+        "cmdline": "lua",
+        "ext": "lua",
+        "builder": Execute
+    },
+    "Ruby": {
+        "cmdline": "ruby",
+        "ext": "rb",
+        "builder": Execute
+    },
+    "Bash": {
+        "cmdline": "bash",
+        "ext": "sh",
+        "builder": Execute
+    },
+    "Elixir": {
+        "cmdline": "elixir",
+        "ext": "exs",
+        "builder": Execute
+    },
+    "Objective-C": {
+        "cmdline": "gcc -Wall -lm -lobjc",
+        "ext": "m",
+        "builder": Build
+    },
+    "PHP": {
+        "cmdline": "php",
+        "ext": "php",
+        "builder": Execute
+    },
+    "Swift": {
+        "cmdline": "swift",
+        "ext": "swift",
+        "builder": Execute
+    }
+}
+
+def chunks(l, n):
+    """Yield successive n-sized chunks from a list."""
+    return [l[i:i + n] for i in range(0, len(l), n)]
+
+def cases(year, event, problem):
+  """Prepare a test case
+  => Find the test case folder
+  => Load files
+  => Sort by name
+  => Read file contents
+  => Chunk together .in (inputs) and .sol (solution) files
+
+  returns: [["input text", "expected solution"], ...]
+  """
+  dir = '{}/{}/{}/__TESTS__'.format(year, event, problem)
+
+  files = sorted(os.listdir(dir))
+
+  return list(chunks([
+    Path('{}/{}'.format(dir, file)).read_text()
+    for file in files
+  ], 2))
+
+def test(builder, input, expected):
+  """Given a file path, a command, input and expected output,
+  return a 2-uple with a boolean representing if the test passed
+  and the value returned by stderr or stdout"""
+  out, err = builder.run(input)
+
+  solution = bytes.decode(out)
+  error = bytes.decode(err)
+
+  if error:
+    return (False, error)
+
+  if solution == expected:
+    return (True, solution)
+  else:
+    return (False, solution)
+
+def test_all(year, event, problem, language, id):
+  """Test all cases from the given problem"""
+  test_case = cases(year, event, problem)
+
+  file = './{}/{}/{}/{}/solution_{}.{}'.format(year, event, problem, language, id, BUILD_MACHINE[language]['ext'])
+
+  builder = prepare_builder(language, file)
+
+  return test_output([
+    test(builder, input, expected)
+    for input, expected in test_case
+  ])
+
+def prepare_builder(language, file):
+  """Given a language and a file, instance a builder object"""
+  cmdline = BUILD_MACHINE[language]['cmdline']
+  builder = BUILD_MACHINE[language]['builder']
+
+  return builder(cmdline, file)
+
+def test_output(results):
+  """Tell our solver if everything went right"""
+  fails = [
+    (i + 1, output)
+    for i, (passed, output) in enumerate(results)
+    if not passed
+  ]
+
+  if not len(fails):
+    print("Perfect solution!")
+  else:
+    for (i, output) in fails:
+      print(
+        'Wrong response for case {}. Output was {}'
+          .format(i, output[:-1])
+      )
+
+# CLI
+
+parser = OptionParser(
+  usage = 'Usage: ./%prog year problem lang solution_number [--event Main]',
+  version = '1.0'
+)
+
+parser.add_option('-e', '--event',
+                  default="Main")
+
+(options, args) = parser.parse_args()
+
+if len(args) < 4:
+  parser.error('Wrong number of arguments')
+
+if options.event not in ['Main', 'Warming']:
+  parser.error('Wrong kind of event. Must be "Main" or "Warming"')
+
+event = options.event
+year, problem, lang, solution_number = args
+
+if not year.isdigit():
+  parser.error('Year is not a number')
+
+if not solution_number.isdigit():
+  parser.error('Solution number is not a number')
+
+if not lang in BUILD_MACHINE:
+  parser.error(
+    'Language not found.\nAvailable: {}'
+      .format(", ".join(BUILD_MACHINE.keys()))
+  )
+
+possible_file = '{}/{}/{}/{}/solution_{}.{}'.format(year, event, problem, lang, solution_number, BUILD_MACHINE[lang]['ext'])
+
+if not os.path.isfile(os.path.abspath(possible_file)):
+    parser.error('Solution file not found.\nDid you make the file ./{}?'
+                 .format(possible_file))
+
+test_all(int(year), event, problem, lang, int(solution_number))
+
