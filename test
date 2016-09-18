@@ -207,7 +207,7 @@ def prepare_checker(language, file):
 
   return checker
 
-def test_output(results):
+def print_tests(results):
   """Tell our solver if everything went right"""
   fails = [
     (i + 1, output)
@@ -226,42 +226,43 @@ def test_output(results):
 
 # CLI
 
-parser = OptionParser(
-  usage = 'Usage: ./%prog year problem lang solution_number [--event Main]',
-  version = '1.0'
-)
-
-parser.add_option('-e', '--event',
-                  default="Main")
-
-(options, args) = parser.parse_args()
-
-if len(args) < 4:
-  parser.error('Wrong number of arguments')
-
-if options.event not in ['Main', 'Warming']:
-  parser.error('Wrong kind of event. Must be "Main" or "Warming"')
-
-event = options.event
-year, problem, lang, solution_number = args
-
-if not year.isdigit():
-  parser.error('Year is not a number')
-
-if not solution_number.isdigit():
-  parser.error('Solution number is not a number')
-
-if lang not in CHECKERS:
-  parser.error(
-    'Language not found.\nAvailable: {}'
-      .format(", ".join(CHECKERS.keys()))
+if __name__ == '__main__':
+  parser = OptionParser(
+    usage = 'Usage: ./%prog year problem lang solution_number [--event Main]',
+    version = '1.0'
   )
 
-possible_file = solution_path(year, event, problem, lang, solution_number)
+  parser.add_option('-e', '--event',
+                    default="Main")
 
-if not os.path.isfile(os.path.abspath(possible_file)):
-    parser.error('Solution file not found.\nDid you make the file ./{}?'
-                 .format(possible_file))
+  (options, args) = parser.parse_args()
 
-test_output(test_all(int(year), event, problem, lang, int(solution_number)))
+  if len(args) < 4:
+    parser.error('Wrong number of arguments')
+
+  if options.event not in ['Main', 'Warming']:
+    parser.error('Wrong kind of event. Must be "Main" or "Warming"')
+
+  event = options.event
+  year, problem, lang, id = args
+
+  if not year.isdigit():
+    parser.error('Year is not a number')
+
+  if not id.isdigit():
+    parser.error('Solution id is not a number')
+
+  if lang not in CHECKERS:
+    parser.error(
+      'Language not found.\nAvailable: {}'
+        .format(", ".join(CHECKERS.keys()))
+    )
+
+  file = solution_path(year, event, problem, lang, id)
+
+  if not os.path.isfile(os.path.abspath(file)):
+      parser.error('Solution file not found.\nDid you make the file ./{}?'
+                   .format(file))
+
+  print_tests(test_all(int(year), event, problem, lang, int(id)))
 
