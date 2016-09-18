@@ -1,0 +1,268 @@
+#!/usr/bin/env python3
+import os
+from subprocess import run, PIPE, Popen
+from pathlib import Path, PurePath
+from distutils.spawn import find_executable
+from optparse import OptionParser
+
+class Checker(object):
+  """Checker class for solution"""
+
+  checked = []
+
+  def __init__(self, compiler, file):
+    self.compiler = compiler.split()
+    self.file = file
+    self.check()
+
+  def check(self):
+    binary = self.compiler[0]
+
+    if binary not in self.checked and not find_executable(binary):
+      raise EnvironmentError("{!r} not found. Do you have the compilers?".format(binary))  # noqa
+    elif binary not in self.checked:
+      self.checked += binary
+
+class Execute(Checker):
+  """Checker class that simply runs a command and inject an input to stdin"""
+
+  def run(self, input):
+    """Given an input, run a command and insert the input into the stdin"""
+    command = ' '.join(self.compiler + [self.file])
+    program = Popen(command, stdin=PIPE, stdout=PIPE, stderr=PIPE, shell=True)
+
+    return program.communicate(input=input.encode())
+
+class Build(Execute):
+  """Build is a checker that compiles it's file then change it's
+  file and compiler command to simply run the new generated ./compiled.out"""
+
+  fout = "compiled.out"
+
+  def compile(self):
+    """Compile the file before running"""
+    output = os.path.join(os.path.dirname(self.file), self.fout)
+
+    args = self.compiler + [self.file, "-o", output]
+    program = Popen(args, stdout=PIPE)
+
+    if program.wait() != 0:
+      raise EnvironmentError("Compile fails")
+
+    # Once compiled, change it's compiler command and file
+    # so that it's super class Execute may run the newly compiled
+    # compiled.out
+    self.compiler = 'bash -c'.split()
+    self.file = os.path.abspath(output)
+
+  def cleanup(self):
+    """Delete the compiled file after runs"""
+    os.remove(self.file)
+
+CHECKERS = {
+    "Python": {
+        "cmdline": "python3",
+        "ext": "py",
+        "checker": Execute
+    },
+    "Go": {
+        "cmdline": "go run",
+        "ext": "go",
+        "checker": Execute
+    },
+    "Clojure": {
+        "cmdline": "clojure",
+        "ext": "clj",
+        "checker": Execute
+    },
+    "CommonLisp": {
+        "cmdline": "clisp",
+        "ext": "lisp",
+        "checker": Execute
+    },
+    "Haskell": {
+        "cmdline": "runhaskell",
+        "ext": "hs",
+        "checker": Execute
+    },
+    "C": {
+        "cmdline": "gcc -std=c99 -lm",
+        "ext": "c",
+        "checker": Build
+    },
+    "C++": {
+        "cmdline": "g++ -std=c++0x",
+        "ext": "cpp",
+        "checker": Build
+    },
+    "Lua": {
+        "cmdline": "lua",
+        "ext": "lua",
+        "checker": Execute
+    },
+    "Ruby": {
+        "cmdline": "ruby",
+        "ext": "rb",
+        "checker": Execute
+    },
+    "Bash": {
+        "cmdline": "bash",
+        "ext": "sh",
+        "checker": Execute
+    },
+    "Elixir": {
+        "cmdline": "elixir",
+        "ext": "exs",
+        "checker": Execute
+    },
+    "Objective-C": {
+        "cmdline": "gcc -Wall -lm -lobjc",
+        "ext": "m",
+        "checker": Build
+    },
+    "PHP": {
+        "cmdline": "php",
+        "ext": "php",
+        "checker": Execute
+    },
+    "Swift": {
+        "cmdline": "swift",
+        "ext": "swift",
+        "checker": Execute
+    }
+}
+
+def chunks(l, n):
+    """Yield successive n-sized chunks from a list."""
+    return [l[i:i + n] for i in range(0, len(l), n)]
+
+def cases(year, event, problem):
+  """Prepare a test case
+  => Find the test case folder
+  => Load files
+  => Sort by name
+  => Read file contents
+  => Chunk together .in (inputs) and .sol (solution) files
+
+  returns: [["input text", "expected solution"], ...]
+  """
+  dir = '{}/{}/{}/__TESTS__'.format(year, event, problem)
+
+  files = sorted(os.listdir(dir))
+
+  return list(chunks([
+    Path('{}/{}'.format(dir, file)).read_text()
+    for file in files
+  ], 2))
+
+def solution_path(year, event, problem, language, id):
+  return './{}/{}/{}/{}/solution_{}.{}'.format(
+    year, event, problem, language, id, CHECKERS[language]['ext']
+  )
+
+def test(checker, input, expected):
+  """Given a checker, a input and a expected output,
+  return a 2-uple with a boolean representing if the test passed
+  and the value returned by stderr or stdout"""
+  out, err = checker.run(input)
+
+  solution = bytes.decode(out)
+  error = bytes.decode(err)
+
+  if error:
+    return (False, error)
+
+  if solution == expected:
+    return (True, solution)
+  else:
+    return (False, solution)
+
+def test_all(year, event, problem, language, id):
+  """Test all cases from the given problem"""
+  test_case = cases(year, event, problem)
+
+  file = solution_path(year, event, problem, language, id)
+
+  checker = prepare_checker(language, file)
+
+  results = [
+    test(checker, input, expected)
+    for input, expected in test_case
+  ]
+
+  if isinstance(checker, Build):
+    checker.cleanup()
+
+  return results
+
+def prepare_checker(language, file):
+  """Given a language and a file, instance a builder object"""
+  cmdline = CHECKERS[language]['cmdline']
+  checker_type = CHECKERS[language]['checker']
+
+  checker = checker_type(cmdline, file)
+
+  if isinstance(checker, Build):
+    checker.compile()
+
+  return checker
+
+def print_tests(results):
+  """Tell our solver if everything went right"""
+  fails = [
+    (i + 1, output)
+    for i, (passed, output) in enumerate(results)
+    if not passed
+  ]
+
+  if not len(fails):
+    print("Perfect solution!")
+  else:
+    for (i, output) in fails:
+      print(
+        'Wrong response for case {}. Output was {}'
+          .format(i, output[:-1])
+      )
+
+# CLI
+
+if __name__ == '__main__':
+  parser = OptionParser(
+    usage = 'Usage: ./%prog year problem lang solution_number [--event Main]',
+    version = '1.0'
+  )
+
+  parser.add_option('-e', '--event',
+                    default="Main")
+
+  (options, args) = parser.parse_args()
+
+  if len(args) < 4:
+    parser.error('Wrong number of arguments')
+
+  if options.event not in ['Main', 'Warming']:
+    parser.error('Wrong kind of event. Must be "Main" or "Warming"')
+
+  event = options.event
+  year, problem, lang, id = args
+
+  if not year.isdigit():
+    parser.error('Year is not a number')
+
+  if not id.isdigit():
+    parser.error('Solution id is not a number')
+
+  if lang not in CHECKERS:
+    parser.error(
+      'Language not found.\nAvailable: {}'
+        .format(", ".join(CHECKERS.keys()))
+    )
+
+  file = solution_path(year, event, problem, lang, id)
+
+  if not os.path.isfile(os.path.abspath(file)):
+      parser.error('Solution file not found.\nDid you make the file ./{}?'
+                   .format(file))
+
+  print_tests(test_all(int(year), event, problem, lang, int(id)))
+
