@@ -155,6 +155,11 @@ def cases(year, event, problem):
     for file in files
   ], 2))
 
+def solution_path(year, event, problem, language, id):
+  return './{}/{}/{}/{}/solution_{}.{}'.format(
+    year, event, problem, language, id, CHECKERS[language]['ext']
+  )
+
 def test(checker, input, expected):
   """Given a checker, a input and a expected output,
   return a 2-uple with a boolean representing if the test passed
@@ -176,7 +181,7 @@ def test_all(year, event, problem, language, id):
   """Test all cases from the given problem"""
   test_case = cases(year, event, problem)
 
-  file = './{}/{}/{}/{}/solution_{}.{}'.format(year, event, problem, language, id, CHECKERS[language]['ext'])
+  file = solution_path(year, event, problem, language, id)
 
   checker = prepare_checker(language, file)
 
@@ -252,7 +257,7 @@ if lang not in CHECKERS:
       .format(", ".join(CHECKERS.keys()))
   )
 
-possible_file = '{}/{}/{}/{}/solution_{}.{}'.format(year, event, problem, lang, solution_number, CHECKERS[lang]['ext'])
+possible_file = solution_path(year, event, problem, lang, solution_number)
 
 if not os.path.isfile(os.path.abspath(possible_file)):
     parser.error('Solution file not found.\nDid you make the file ./{}?'
