@@ -1,4 +1,4 @@
-vowels? = fn c -> Enum.member?(["a", "e", "i", "o", "u"], c) end
+vowel? = fn c -> Enum.member?(["a", "e", "i", "o", "u"], c) end
 palindrome? = fn list ->
   reversed = list |> Enum.reverse
   list == reversed
@@ -8,7 +8,7 @@ laugh = IO.read(:line) |> String.trim
 
 if laugh
   |> String.graphemes
-  |> Enum.filter(vowels?)
+  |> Enum.filter(vowel?)
   |> palindrome?.()
 do
   IO.puts "S"
