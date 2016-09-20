@@ -248,7 +248,7 @@ class SpinnerController:
     self.current_started = time()
 
   def progress_text(self):
-    return '{:02d} Passed. {:02d} Failed. Current: {:02d}. Time: {:.2f}'.format(self.passed, self.failed, self.current, time() - self.current_started)
+    return '{:02d} Passed. {:02d} Failed. Current: {:02d}. Time: {:.2f}s'.format(self.passed, self.failed, self.current, time() - self.current_started)
 
   def last_text(self):
     return '{:02d} Passed. {:02d} Failed.'.format(self.passed, self.failed)
