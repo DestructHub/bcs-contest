@@ -259,15 +259,18 @@ def spinner(control):
   for c in cycle(animation):
     done = control.done
 
-    print(
-      ' ({}) {}'.format(c, control.progress_text()) if not done
-      else '{}'.format(control.last_text()),
-      end='\r'
-    )
+    if not done:
+      message =  ' ({}) {}'.format(c, control.progress_text())
+    else:
+      message = '{}'.format(control.last_text())
+
+    print(message, end='\r')
 
     sleep(0.1)
 
-    if done:
+    if not done:
+      print(len(message) * " ", end='\r')
+    else:
       print('')
       break
 
