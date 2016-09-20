@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 import os
+from threading import Thread
 from subprocess import run, PIPE, Popen
 from pathlib import Path, PurePath
 from distutils.spawn import find_executable
 from optparse import OptionParser
+from time import time, sleep
+from itertools import cycle
 
 class Checker(object):
   """Checker class for solution"""
@@ -185,15 +188,11 @@ def test_all(year, event, problem, language, id):
 
   checker = prepare_checker(language, file)
 
-  results = [
-    test(checker, input, expected)
-    for input, expected in test_case
-  ]
+  for input, expected in test_case:
+    yield test(checker, input, expected)
 
   if isinstance(checker, Build):
     checker.cleanup()
-
-  return results
 
 def prepare_checker(language, file):
   """Given a language and a file, instance a builder object"""
@@ -209,13 +208,27 @@ def prepare_checker(language, file):
 
 def print_tests(results):
   """Tell our solver if everything went right"""
-  fails = [
-    (i + 1, output)
-    for i, (passed, output) in enumerate(results)
-    if not passed
-  ]
+  control = SpinnerController()
+  spin_thread = Thread(target=spinner, args=(control,))
+  spin_thread.start()
 
-  if not len(fails):
+  fails = []
+
+  for i, (passed, output) in enumerate(results):
+    control.current += 1
+    control.current_started = time()
+    id = i + 1
+
+    if not passed:
+      control.failed += 1
+      fails.append((id, output))
+    else:
+      control.passed += 1
+
+  control.done = True
+  spin_thread.join()
+
+  if not fails:
     print("Perfect solution!")
   else:
     for (i, output) in fails:
@@ -223,6 +236,40 @@ def print_tests(results):
         'Wrong response for case {}. Output was {}'
           .format(i, output[:-1])
       )
+
+class SpinnerController:
+  done = False
+  current = 1
+  passed = 0
+  failed = 0
+  current_started = 0
+
+  def __init__(self):
+    self.current_started = time()
+
+  def progress_text(self):
+    return '{:02d} Passed. {:02d} Failed. Current: {:02d}. Time: {:.2f}'.format(self.passed, self.failed, self.current, time() - self.current_started)
+
+  def last_text(self):
+    return '{:02d} Passed. {:02d} Failed.'.format(self.passed, self.failed)
+
+def spinner(control):
+  animation = r"⣾⣽⣻⢿⡿⣟⣯"
+
+  for c in cycle(animation):
+    done = control.done
+
+    print(
+      ' ({}) {}'.format(c, control.progress_text()) if not done
+      else '{}'.format(control.last_text()),
+      end='\r'
+    )
+
+    sleep(0.1)
+
+    if done:
+      print('')
+      break
 
 # CLI
 
